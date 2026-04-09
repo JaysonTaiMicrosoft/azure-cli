@@ -9031,6 +9031,153 @@ class NetworkVnetGatewayRoutesAndResiliencyInfoScenarioTest(ScenarioTest):
             self.check('type(components)', 'array')
         ])
 
+class NetworkExpressRouteGatewayFailoverSimulationScenarioTest(ScenarioTest):
+    @live_only()
+    def test_network_express_route_gateway_failover(self): # live_only as the express route is extremely expensive, contact service team for an available ER
+        resource_group = "bhavana-vwan-failover"  
+        er_gateway_name = "422dcfc236aa44f6838f556330b628e1-centraluseuap-er-gw"
+        peering_location = "DataPathLocation1"
+        test_guid = "fb5c66a6-6852-49d9-bf56-fc3e8d2f2a3b"
+        was_simulation_successful = True
+
+        self.kwargs.update({
+            'rg': resource_group,
+            'er_gw': er_gateway_name,
+            'peering_loc': peering_location
+        })
+
+        # Run the command
+        result = self.cmd(
+            'network express-route gateway start-site-failover-test '
+            '--resource-group {rg} --name {er_gw} --peering-location {peering_loc}'
+        ).get_output_in_json()
+
+        # Validate that result is a string (per _schema_on_200 = AAZStrType())
+        self.assertIsInstance(result, dict)
+        
+        import time
+        time.sleep(2 * 60)  # 120 seconds To wait for sometime before stopping the test failover 
+
+        # Construct failover test connection details
+        failover_details = [
+            {
+                "failover-connection-name": "ExRConnection-centraluseuap-1772183583607",
+                "failover-location": "DataPathLocation1",
+                "is-verified": True
+            }
+        ]
+
+        # Convert details list to CLI argument format
+        details_arg = "[" + ",".join(
+            "{{failover-connection-name:{},failover-location:{},is-verified:{}}}".format(
+                d["failover-connection-name"],
+                d["failover-location"],
+                str(d["is-verified"]).lower()
+            ) for d in failover_details
+        ) + "]"
+
+        self.kwargs.update({
+            'rg': resource_group,
+            'er_gw': er_gateway_name,
+            'peering_loc': peering_location,
+            'was_successful': was_simulation_successful,
+            'details_arg': details_arg,
+            'test_guid': test_guid
+        })
+
+        # Run the command
+        result = self.cmd(
+            'network express-route gateway stop-site-failover-test '
+            '--resource-group {rg} --name {er_gw} '
+            '--peering-location {peering_loc} '
+            '--simulation-successful {was_successful} '
+            '--details \'{details_arg}\''
+        ).get_output_in_json()
+
+        # Validate
+        self.assertTrue(isinstance(result, (str, dict)))
+
+        # Run all tests detail command to validate the stop operation
+        tests_link_latest = self.cmd(
+            'network express-route gateway get-failover-all-tests-detail '
+            '--resource-group {rg} --name {er_gw} '
+            '--fetch-latest True --type SingleSiteFailover'
+        ).get_output_in_json()
+
+        self.assertIsInstance(tests_link_latest, dict)
+
+        #
+        single_test_result = self.cmd(
+                'network express-route gateway get-failover-single-test-detail '
+                '--resource-group {rg} --name {er_gw} '
+                '--failover-test-id {test_guid} '
+                '--peering-location {peering_loc} '
+            ).get_output_in_json()
+
+        # Validate response structure
+        self.assertIsInstance(single_test_result, dict)
+
+
+class NetworkExpressRouteGatewayRoutesResiliencyScenarioTest(ScenarioTest):
+
+    @live_only()  # live_only as express route gateways require expensive resources
+    @ResourceGroupPreparer(name_prefix='test_express_route_gateway_routes_resiliency', location='eastus')
+    @AllowLargeResponse(size_kb=9999)
+    def test_network_express_route_gateway_routes_and_resiliency(self, resource_group):
+        """
+        Test Express Route Gateway routes and resiliency information operations:
+        - Get routes information
+        - Get resiliency information
+        """
+        from time import sleep
+
+        resource_group = "bhavana-vwan-failover"  
+        er_gateway_name = "422dcfc236aa44f6838f556330b628e1-centraluseuap-er-gw"
+        attempt_refresh = True
+
+        self.kwargs.update({
+            'rg': resource_group,
+            'er_gw': er_gateway_name,
+            'attempt_refresh': attempt_refresh
+        })
+
+        # Test 1: Get Routes Information
+        routes_result = self.cmd(
+            'network express-route gateway get-routes-information '
+            '--resource-group {rg} --name {er_gw} --attempt-refresh {attempt_refresh}'
+        ).get_output_in_json()
+
+        # Validate routes information response structure
+        self.assertIsInstance(routes_result, dict)
+        self.assertIn('routeSetVersion', routes_result)
+        self.assertIn('lastComputedTime', routes_result)
+        self.assertIn('nextEligibleComputeTime', routes_result)
+        if 'routeSets' in routes_result:
+            self.assertIsInstance(routes_result['routeSets'], list)
+        if 'circuitsMetadataMap' in routes_result:
+            self.assertIsInstance(routes_result['circuitsMetadataMap'], dict)
+
+        # Test 2: Get Resiliency Information
+        resiliency_result = self.cmd(
+            'network express-route gateway get-resiliency-information '
+            '--resource-group {rg} --name {er_gw} --attempt-refresh {attempt_refresh}'
+        ).get_output_in_json()
+
+        # Validate resiliency information response structure
+        self.assertIsInstance(resiliency_result, dict)
+        self.assertIn('overallScore', resiliency_result)
+        self.assertIn('lastComputedTime', resiliency_result)
+        self.assertIn('nextEligibleComputeTime', resiliency_result)
+        if 'components' in resiliency_result:
+            self.assertIsInstance(resiliency_result['components'], list)
+            if len(resiliency_result['components']) > 0:
+                component = resiliency_result['components'][0]
+                self.assertIn('name', component)
+                self.assertIn('currentScore', component)
+                if 'recommendations' in component:
+                    self.assertIsInstance(component['recommendations'], list)
+
+
 class NetworkVirtualNetworkApplianceScenario(ScenarioTest):
     @ResourceGroupPreparer(name_prefix='test_vna', location='eastus')
     def test_network_virtual_network_appliance(self, resource_group):
