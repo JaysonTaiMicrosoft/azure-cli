@@ -5680,8 +5680,6 @@ def create_image_version(cmd, resource_group_name, gallery_name, gallery_image_n
 
     if replication_mode is not None:
         profile["replication_mode"] = replication_mode
-    source = {"managed_image": {"id": managed_image}}
-    profile["source"] = source
 
     if managed_image is None and os_snapshot is None and os_vhd_uri is None:
         raise RequiredArgumentMissingError('usage error: Please provide --managed-image or --os-snapshot or --vhd')
